@@ -121,6 +121,7 @@ data:
         variable "num_cpus" {}
         variable "memory" {}
         variable "vm_template" {}
+        variable "proxy" {}
         variable "network" { default = "VM Network"}
         variable "disk_label" { default = "disk0" }
         variable "disk_size" { default = 10}
@@ -201,6 +202,23 @@ data:
           }
         }
 
+        data "template_file" "proxy_env" {
+          template = <<EOF
+          PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+          http_proxy="http://$${proxy}"
+          https_proxy="http://$${proxy}"
+          ftp_proxy="http://$${proxy}"
+          no_proxy="localhost,127.0.0.1"
+          HTTP_PROXY="http://$${proxy}"
+          HTTPS_PROXY="http://$${proxy}"
+          FTP_PROXY="http://$${proxy}"
+          NO_PROXY="localhost,127.0.0.1"
+          EOF
+          vars {
+            proxy = "${var.proxy}"
+          }
+        }
+
         data "template_file" "user_data" {
           template = <<EOF
         #cloud-config
@@ -215,12 +233,45 @@ data:
             encoding: base64
             content: |
               $${cloud_provider_config}
+          - path: /etc/environment
+            permissions: '0644'
+            encoding: base64
+            content: |
+              $${proxy_env}
+          - path: /etc/default/docker
+            permissions: '0644'
+            encoding: base64
+            content: |
+              $${proxy_env}
+          - path: /etc/apt/apt.conf.d/71debconf
+            permissions: '0644'
+            content: |
+              Dpkg::Options {
+                "--force-confdef";
+              };
+          - path: /etc/apt/apt.conf.d/95proxies
+            permissions: '0644'
+            content: |
+              Acquire::http::proxy "http://$${proxy}";
+              Acquire::https::proxy "https://$${proxy}";
+              Acquire::ftp::proxy "ftp://$${proxy}";
+          - path: /tmp/wrapper.sh
+            permissions: '0755'
+            content: |
+              #!/bin/bash
+              source /etc/environment
+              PUBLIC_IP=$(hostname -I)
+              no_proxy="$no_proxy,$PUBLIC_IP"
+              NO_PROXY="$NO_PROXY,$PUBLIC_IP"
+              /tmp/master.sh
         runcmd:
-          - /tmp/master.sh
+          - /tmp/wrapper.sh
         EOF
           vars {
             startup_script = "${base64encode(file("/tmp/machine-startup.sh"))}"
             cloud_provider_config = "${base64encode(data.template_file.cloud_provider_config.rendered)}"
+            proxy_env = "${base64encode(data.template_file.proxy_env.rendered)}"
+            proxy = "${var.proxy}"
           }
         }
 
@@ -280,6 +331,7 @@ data:
         variable "num_cpus" {}
         variable "memory" {}
         variable "vm_template" {}
+        variable "proxy" {}
         variable "network" { default = "VM Network"}
         variable "disk_label" { default = "disk0" }
         variable "disk_size" { default = 10}
@@ -326,6 +378,23 @@ data:
           datacenter_id = "${data.vsphere_datacenter.dc.id}"
         }
 
+        data "template_file" "proxy_env" {
+          template = <<EOF
+          PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+          http_proxy="http://$${proxy}"
+          https_proxy="http://$${proxy}"
+          ftp_proxy="http://$${proxy}"
+          no_proxy="localhost,127.0.0.1"
+          HTTP_PROXY="http://$${proxy}"
+          HTTPS_PROXY="http://$${proxy}"
+          FTP_PROXY="http://$${proxy}"
+          NO_PROXY="localhost,127.0.0.1"
+          EOF
+          vars {
+            proxy = "${var.proxy}"
+          }
+        }
+
         // Generate cloud-config for VM startup
         data "template_file" "user_data" {
           template = <<EOF
@@ -335,11 +404,44 @@ data:
               $${startup_script}
             path: /tmp/node.sh
             permissions: '0755'
+          - path: /etc/environment
+            permissions: '0644'
+            encoding: base64
+            content: |
+              $${proxy_env}
+          - path: /etc/default/docker
+            permissions: '0644'
+            encoding: base64
+            content: |
+              $${proxy_env}
+          - path: /etc/apt/apt.conf.d/71debconf
+            permissions: '0644'
+            content: |
+              Dpkg::Options {
+                "--force-confdef";
+              };
+          - path: /etc/apt/apt.conf.d/95proxies
+            permissions: '0644'
+            content: |
+              Acquire::http::proxy "http://$${proxy}";
+              Acquire::https::proxy "https://$${proxy}";
+              Acquire::ftp::proxy "ftp://$${proxy}";
+          - path: /tmp/wrapper.sh
+            permissions: '0755'
+            content: |
+              #!/bin/bash
+              source /etc/environment
+              PUBLIC_IP=$(hostname -I)
+              no_proxy="$no_proxy,$PUBLIC_IP"
+              NO_PROXY="$NO_PROXY,$PUBLIC_IP"
+              /tmp/node.sh
         runcmd:
-          - /tmp/node.sh
+          - /tmp/wrapper.sh
         EOF
           vars {
             startup_script = "${indent(6, file("/tmp/machine-startup.sh"))}"
+            proxy_env = "${base64encode(data.template_file.proxy_env.rendered)}"
+            proxy = "${var.proxy}"
           }
         }
 
